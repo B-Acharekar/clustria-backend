@@ -23,3 +23,23 @@ export const uploadToAzure = async (filename, buffer) => {
 
   return `${blockBlobClient.url}?${sasToken}`;
 };
+
+export const downloadFromAzure = async (filename) => {
+  const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
+  const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAME);
+  const blockBlobClient = containerClient.getBlockBlobClient(filename);
+
+  const downloadResponse = await blockBlobClient.download();
+  const downloaded = await streamToBuffer(downloadResponse.readableStreamBody);
+
+  return downloaded;
+};
+
+const streamToBuffer = async (readableStream) => {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    readableStream.on("data", (data) => chunks.push(data));
+    readableStream.on("end", () => resolve(Buffer.concat(chunks)));
+    readableStream.on("error", reject);
+  });
+};

@@ -1,5 +1,6 @@
+import { error } from "console";
 import File from "../models/File.js";
-import { uploadToAzure } from "../utils/azureUpload.js";
+import { uploadToAzure, downloadFromAzure  } from "../utils/azureUpload.js";
 import crypto from "crypto";
 
 export const uploadFile = async (req, res) => {
@@ -10,10 +11,12 @@ export const uploadFile = async (req, res) => {
     if (!file) return res.status(400).json({ error: "No file uploaded" });
 
     let buffer = file.buffer;
+    let key,iv;
 
     if (encryptionType === "AES") {
-      const key = crypto.randomBytes(32); // AES-256 key
-      const iv = crypto.randomBytes(16);
+      key = crypto.randomBytes(32); // AES-256 key
+      iv = crypto.randomBytes(16);
+      
       const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
       buffer = Buffer.concat([cipher.update(buffer), cipher.final()]);
     }
@@ -24,6 +27,8 @@ export const uploadFile = async (req, res) => {
       filename: file.originalname,
       fileUrl,
       encryptionType: encryptionType || "NONE",
+      key: key?.toString("hex") || null,
+      iv: iv?.toString("hex")|| null,
     });
 
     res.status(201).json({ success: true, file: newFile });
@@ -35,10 +40,34 @@ export const uploadFile = async (req, res) => {
 
 export const getFiles = async (req, res) => {
   try {
-    const files = await File.find().sort({ createdAt: -1 });
-    res.json(files);
+    const {id} = req.params;
+    const fileDoc = await File.findById(id);
+    if(!fileDoc) return res.status(404).json({error:"File not found"});
+
+    let buffer = await downloadFromAzure(fileDoc.filename);
+
+    if (fileDoc.encryptionType === "AES" && fileDoc.key && fileDoc.iv) {
+      const decipher = crypto.createDecipheriv(
+        "aes-256-cbc",
+        Buffer.from(fileDoc.key, "hex"),
+        Buffer.from(fileDoc.iv, "hex")
+      );
+      buffer = Buffer.concat([decipher.update(buffer), decipher.final()]);
+    }
+    res.setHeader("Content-Disposition",`attachment; filename=${fileDoc.filename}`);
+    res.send(buffer);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch files" });
+  }
+};
+
+export const listFiles = async (req, res) => {
+  try {
+    const files = await File.find().sort({ createdAt: -1 });
+    res.json({ success: true, files });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to list files" });
   }
 };
