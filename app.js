@@ -1,12 +1,19 @@
-const express = require('express');
-const cors = require('cors');
-const app = express();
+import express from "express";
+import mongoose from "mongoose";
+import dotenv from "dotenv";
+import fileRoutes from "./routes/fileRoutes.js";
+import { MONGO_URI, PORT } from "./config.js";
 
-app.use(cors());
+dotenv.config();
+const app = express();
 app.use(express.json());
 
-app.get('/', (req, res) => {
-  res.send('Clustria Backend API Running');
-});
+// MongoDB connection
+mongoose.connect(MONGO_URI)
+  .then(() => console.log("MongoDB connected"))
+  .catch(err => console.error(err));
 
-module.exports = app;
+// File routes
+app.use("/api/files", fileRoutes);
+
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
