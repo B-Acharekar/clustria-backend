@@ -5,7 +5,7 @@ import crypto from "crypto";
 
 export const uploadFile = async (req, res) => {
   try {
-    const { encryptionType } = req.body;
+    const { encryptionType, folderId } = req.body;
     const file = req.file;
 
     if (!file) return res.status(400).json({ error: "No file uploaded" });
@@ -24,6 +24,7 @@ export const uploadFile = async (req, res) => {
 
     const newFile = await File.create({
       user: req.user._id, // associate with logged-in user
+      folder:folderId || null,
       filename: file.originalname,
       fileUrl,
       encryptionType: encryptionType || "NONE",
@@ -40,6 +41,11 @@ export const uploadFile = async (req, res) => {
 
 export const listFiles = async (req, res) => {
   try {
+    const {folderId} = req.query;
+    const query = {user: req.user._id};
+    
+    if(folderId) query.folder = folderId;
+
     const files = await File.find({ user: req.user._id }).sort({ createdAt: -1 });
     res.json({ success: true, files });
   } catch (err) {

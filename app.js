@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import fileRoutes from "./routes/fileRoutes.js";
 import authRoutes from "./routes/userRoutes.js";
+import folderRoutes from "./routes/folderRoutes.js";
 import { MONGO_URI, PORT } from "./config.js";
 
 dotenv.config();
@@ -17,5 +18,6 @@ mongoose.connect(MONGO_URI)
 // File routes
 app.use("/api/files", fileRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/folders", folderRoutes);
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
