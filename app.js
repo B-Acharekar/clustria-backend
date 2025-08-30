@@ -1,5 +1,6 @@
 import express from "express";
 import mongoose from "mongoose";
+import cors from "cors";
 import dotenv from "dotenv";
 import fileRoutes from "./routes/fileRoutes.js";
 import authRoutes from "./routes/userRoutes.js";
@@ -9,6 +10,11 @@ import { MONGO_URI, PORT } from "./config.js";
 dotenv.config();
 const app = express();
 app.use(express.json());
+
+app.use(cors({
+  origin: `${process.env.FRONTEND_PORT}`, // your frontend URL
+  credentials: true, // if you need cookies/auth
+}));
 
 // MongoDB connection
 mongoose.connect(MONGO_URI)
