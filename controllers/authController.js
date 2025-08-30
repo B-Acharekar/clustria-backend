@@ -2,9 +2,12 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import { OAuth2Client } from "google-auth-library";
 
 const generateToken = (user) => {
-  return jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
+  return jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+    expiresIn: "7d",
+  });
 };
 
 export const signup = async (req, res) => {
@@ -27,7 +30,8 @@ export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
-    if (!user || !user.password) return res.status(400).json({ msg: "Invalid credentials" });
+    if (!user || !user.password)
+      return res.status(400).json({ msg: "Invalid credentials" });
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ msg: "Invalid credentials" });
@@ -39,18 +43,39 @@ export const login = async (req, res) => {
   }
 };
 
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
 export const googleAuth = async (req, res) => {
   try {
-    const { email, name, googleId, avatar } = req.body;
+    const { token } = req.body; // frontend sends the Google ID token
 
+    // Verify token with Google
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const { email, name, picture, sub: googleId } = payload;
+
+    // Check if user exists
     let user = await User.findOne({ email });
     if (!user) {
-      user = await User.create({ name, email, googleId, avatar, provider: "google" });
+      user = await User.create({
+        name,
+        email,
+        googleId,
+        avatar: picture,
+        provider: "google",
+      });
     }
 
-    const token = generateToken(user);
-    res.json({ success: true, user, token });
+    // Issue our JWT
+    const appToken = generateToken(user);
+
+    res.json({ success: true, user, token: appToken });
   } catch (err) {
-    res.status(500).json({ msg: err.message });
+    console.error(err);
+    res.status(500).json({ msg: "Google authentication failed" });
   }
 };
