@@ -11,12 +11,11 @@ export const uploadFile = async (req, res) => {
     if (!file) return res.status(400).json({ error: "No file uploaded" });
 
     let buffer = file.buffer;
-    let key,iv;
+    let key, iv;
 
     if (encryptionType === "AES") {
-      key = crypto.randomBytes(32); // AES-256 key
+      key = crypto.randomBytes(32);
       iv = crypto.randomBytes(16);
-      
       const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
       buffer = Buffer.concat([cipher.update(buffer), cipher.final()]);
     }
@@ -24,11 +23,12 @@ export const uploadFile = async (req, res) => {
     const fileUrl = await uploadToAzure(file.originalname, buffer);
 
     const newFile = await File.create({
+      user: req.user._id, // associate with logged-in user
       filename: file.originalname,
       fileUrl,
       encryptionType: encryptionType || "NONE",
       key: key?.toString("hex") || null,
-      iv: iv?.toString("hex")|| null,
+      iv: iv?.toString("hex") || null,
     });
 
     res.status(201).json({ success: true, file: newFile });
@@ -38,11 +38,23 @@ export const uploadFile = async (req, res) => {
   }
 };
 
+export const listFiles = async (req, res) => {
+  try {
+    const files = await File.find({ user: req.user._id }).sort({ createdAt: -1 });
+    res.json({ success: true, files });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to list files" });
+  }
+};
+
 export const getFiles = async (req, res) => {
   try {
-    const {id} = req.params;
+    const { id } = req.params;
     const fileDoc = await File.findById(id);
-    if(!fileDoc) return res.status(404).json({error:"File not found"});
+
+    if (!fileDoc) return res.status(404).json({ error: "File not found" });
+    if (!fileDoc.user.equals(req.user._id)) return res.status(403).json({ error: "Unauthorized" });
 
     let buffer = await downloadFromAzure(fileDoc.filename);
 
@@ -54,20 +66,11 @@ export const getFiles = async (req, res) => {
       );
       buffer = Buffer.concat([decipher.update(buffer), decipher.final()]);
     }
-    res.setHeader("Content-Disposition",`attachment; filename=${fileDoc.filename}`);
+
+    res.setHeader("Content-Disposition", `attachment; filename=${fileDoc.filename}`);
     res.send(buffer);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch files" });
-  }
-};
-
-export const listFiles = async (req, res) => {
-  try {
-    const files = await File.find().sort({ createdAt: -1 });
-    res.json({ success: true, files });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to list files" });
   }
 };
