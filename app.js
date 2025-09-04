@@ -6,11 +6,14 @@ import fileRoutes from "./routes/fileRoutes.js";
 import authRoutes from "./routes/userRoutes.js";
 import folderRoutes from "./routes/folderRoutes.js";
 import { MONGO_URI, PORT } from "./config.js";
+import cookieParser from "cookie-parser";
 
 dotenv.config();
-const app = express();
-app.use(express.json());
 
+const app = express();
+
+app.use(express.json());
+app.use(cookieParser());
 app.use(cors({
   origin: `${process.env.FRONTEND_PORT}`, // your frontend URL
   credentials: true, // if you need cookies/auth

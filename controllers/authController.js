@@ -10,6 +10,15 @@ const generateToken = (user) => {
   });
 };
 
+const setTokenCookie = (res,token) => {
+  res.cookie("token",token,{
+    httpOnly:true,
+    secure:process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 7*24*60*60*1000, //7 days
+  });
+}
+
 export const signup = async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -20,7 +29,9 @@ export const signup = async (req, res) => {
     const user = await User.create({ name, email, password: hashed });
 
     const token = generateToken(user);
-    res.json({ success: true, user, token });
+    setTokenCookie(res,token);
+
+    res.json({ success: true, user}); //no token in JSON
   } catch (err) {
     res.status(500).json({ msg: err.message });
   }
@@ -37,7 +48,8 @@ export const login = async (req, res) => {
     if (!isMatch) return res.status(400).json({ msg: "Invalid credentials" });
 
     const token = generateToken(user);
-    res.json({ success: true, user, token });
+    setTokenCookie(res,token);
+    res.json({ success: true, user }); // no token in JSON
   } catch (err) {
     res.status(500).json({ msg: err.message });
   }
@@ -72,10 +84,19 @@ export const googleAuth = async (req, res) => {
 
     // Issue our JWT
     const appToken = generateToken(user);
-
-    res.json({ success: true, user, token: appToken });
+    setTokenCookie(res,appToken);
+    res.json({ success: true, user});
   } catch (err) {
     console.error(err);
     res.status(500).json({ msg: "Google authentication failed" });
   }
+};
+
+export const logout = (req, res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+  });
+  res.json({ success: true });
 };
