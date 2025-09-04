@@ -57,6 +57,7 @@ export const listFiles = async (req, res) => {
 export const getFiles = async (req, res) => {
   try {
     const { id } = req.params;
+    const { preview } = req.query;
     const fileDoc = await File.findById(id);
 
     if (!fileDoc) return res.status(404).json({ error: "File not found" });
@@ -72,8 +73,20 @@ export const getFiles = async (req, res) => {
       );
       buffer = Buffer.concat([decipher.update(buffer), decipher.final()]);
     }
+    
+    // Determine MIME type
+    const ext = fileDoc.filename.split(".").pop()?.toLowerCase();
+    let contentType = "application/octet-stream"; // fallback
+    if (["png", "jpg", "jpeg", "gif"].includes(ext)) contentType = `image/${ext === "jpg" ? "jpeg" : ext}`;
+    if (ext === "pdf") contentType = "application/pdf";
+    if (["mp4", "webm"].includes(ext)) contentType = `video/${ext}`;
 
-    res.setHeader("Content-Disposition", `attachment; filename=${fileDoc.filename}`);
+    res.setHeader("Content-Type", contentType);
+
+    // Only force download if preview not requested
+    if (!preview) {
+      res.setHeader("Content-Disposition", `attachment; filename=${fileDoc.filename}`);
+    }
     res.send(buffer);
   } catch (err) {
     console.error(err);
