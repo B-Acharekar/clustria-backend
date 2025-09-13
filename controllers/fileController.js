@@ -1,6 +1,6 @@
 import { error } from "console";
 import File from "../models/File.js";
-import { uploadToAzure, downloadFromAzure  } from "../utils/azureUpload.js";
+import { uploadToAzure, downloadFromAzure,deleteFromAzure  } from "../utils/azureUpload.js";
 import crypto from "crypto";
 
 export const uploadFile = async (req, res) => {
@@ -91,5 +91,30 @@ export const getFiles = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch files" });
+  }
+};
+
+export const deleteFile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const fileDoc = await File.findById(id);
+
+    if (!fileDoc) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    // Ensure only owner can delete
+    if (!fileDoc.user.equals(req.user._id)) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    await deleteFromAzure(fileDoc.filename);
+
+    await fileDoc.deleteOne();
+
+    res.json({ success: true, message: "File deleted" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete file" });
   }
 };

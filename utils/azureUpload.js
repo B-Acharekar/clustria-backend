@@ -1,9 +1,10 @@
 import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions } from "@azure/storage-blob";
 import { AZURE_STORAGE_CONNECTION_STRING, CONTAINER_NAME } from "../config.js";
 
+const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
+const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAME);
+
 export const uploadToAzure = async (filename, buffer) => {
-  const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
-  const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAME);
 
   await containerClient.createIfNotExists(); // private container
 
@@ -33,6 +34,12 @@ export const downloadFromAzure = async (filename) => {
   const downloaded = await streamToBuffer(downloadResponse.readableStreamBody);
 
   return downloaded;
+};
+
+export const deleteFromAzure = async (filename) => {
+  const blockBlobClient = containerClient.getBlockBlobClient(filename);
+  await blockBlobClient.deleteIfExists();
+  return true;
 };
 
 const streamToBuffer = async (readableStream) => {
