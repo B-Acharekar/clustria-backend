@@ -1,8 +1,11 @@
 // controllers/authController.js
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import { OAuth2Client } from "google-auth-library";
+import { sendEmail } from "../utils/mailer.js";
+import { resetPasswordTemplate } from "../utils/emailTemplates.js";
 
 const generateToken = (user) => {
   return jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
@@ -99,4 +102,97 @@ export const logout = (req, res) => {
     sameSite: "lax",
   });
   res.json({ success: true });
+};
+
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ msg: "User not found" });
+
+    // Generate token
+    const token = crypto.randomBytes(32).toString("hex");
+    user.resetPasswordToken = token;
+    user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+    await user.save();
+
+    const resetLink = `${process.env.FRONTEND_PORT}/reset-password/${token}`;
+    const emailContent = resetPasswordTemplate(user.name, resetLink);
+    await sendEmail(
+      user.email,
+      "Password Reset Request",
+      emailContent
+    );
+
+    res.json({ success: true, msg: "Password reset link sent to your email" });
+  } catch (err) {
+    res.status(500).json({ msg: "Failed to send email" });
+  }
+};
+
+export const resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: Date.now() },
+    });
+    if (!user) return res.status(400).json({ msg: "Invalid or expired token" });
+
+    // Update password
+    const hashed = await bcrypt.hash(password, 10);
+    user.password = hashed;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    res.json({ success: true, msg: "Password has been reset successfully" });
+  } catch (err) {
+    res.status(500).json({ msg: err.message });
+  }
+};
+
+export const getProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password -resetPasswordToken -resetPasswordExpires");
+    if (!user) return res.status(404).json({ msg: "User not found" });
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ msg: err.message });
+  }
+};
+
+export const updateProfile = async (req, res) => {
+  try {
+    const { name, avatar } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ msg: "User not found" });
+
+    if (name) user.name = name;
+    if (avatar) user.avatar = avatar;
+    await user.save();
+
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ msg: err.message });
+  }
+};
+
+export const changePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user || !user.password)
+      return res.status(400).json({ msg: "Invalid request" });
+
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isMatch) return res.status(400).json({ msg: "Old password is incorrect" });
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.json({ success: true, msg: "Password changed successfully" });
+  } catch (err) {
+    res.status(500).json({ msg: err.message });
+  }
 };
