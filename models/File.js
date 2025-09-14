@@ -6,10 +6,10 @@ const fileSchema = new mongoose.Schema({
   filename: { type: String, required: true },
   fileUrl: { type: String, required: true },
   encryptionType: { type: String, enum: ["NONE", "AES", "ZKE"], default: "NONE" },
+  tags: { type: [String], default: [] },
+  metadata: { type: Object, default: {} },
   key: String,
   iv: String,
-  //   tags: { type: [String], default: [] },
-  //   metadata: { type: Object, default: {} },
 }, { timestamps: true });
 
 

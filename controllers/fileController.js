@@ -5,7 +5,7 @@ import crypto from "crypto";
 
 export const uploadFile = async (req, res) => {
   try {
-    const { encryptionType, folderId } = req.body;
+    const { encryptionType, folderId,tags } = req.body;
     const file = req.file;
 
     if (!file) return res.status(400).json({ error: "No file uploaded" });
@@ -21,7 +21,13 @@ export const uploadFile = async (req, res) => {
     }
 
     const fileUrl = await uploadToAzure(file.originalname, buffer);
-
+    
+    const parsedTags = tags ? tags.split(",").map(tag => tag.trim()) : [];
+    const metadata = {
+      size: file.size,
+      type: file.mimetype,
+      extension: file.originalname.split(".").pop().toLowerCase(),
+    }
     const newFile = await File.create({
       user: req.user._id, // associate with logged-in user
       folder:folderId || null,
@@ -30,7 +36,12 @@ export const uploadFile = async (req, res) => {
       encryptionType: encryptionType || "NONE",
       key: key?.toString("hex") || null,
       iv: iv?.toString("hex") || null,
+      tags:parsedTags,
+      metadata
     });
+
+    req.user.storageUsed += file.size;
+    await req.user.save();
 
     res.status(201).json({ success: true, file: newFile });
   } catch (err) {
@@ -109,12 +120,29 @@ export const deleteFile = async (req, res) => {
     }
 
     await deleteFromAzure(fileDoc.filename);
-
     await fileDoc.deleteOne();
+    req.user.storageUsed -= fileDoc.metadata.size || 0;
+    if (req.user.storageUsed < 0) req.user.storageUsed = 0; // ensure no negative
+    await req.user.save();
 
     res.json({ success: true, message: "File deleted" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to delete file" });
+  }
+};
+
+export const getStorageInfo = async (req, res) => {
+  try {
+    const { storageUsed, storageLimit } = req.user;
+    res.json({
+      success: true,
+      storageUsed,
+      storageLimit,
+      usedPercentage: ((storageUsed / storageLimit) * 100).toFixed(2)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to retrieve storage information" });
   }
 };
