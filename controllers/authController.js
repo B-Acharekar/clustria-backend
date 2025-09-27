@@ -6,6 +6,7 @@ import User from "../models/User.js";
 import { OAuth2Client } from "google-auth-library";
 import { sendEmail } from "../utils/mailer.js";
 import { resetPasswordTemplate } from "../utils/emailTemplates.js";
+import { createDefaultFolders } from "./folderController.js";
 
 const generateToken = (user) => {
   return jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
@@ -30,6 +31,8 @@ export const signup = async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10);
     const user = await User.create({ name, email, password: hashed });
+
+    await createDefaultFolders(user._id);
 
     const token = generateToken(user);
     setTokenCookie(res,token);
@@ -73,8 +76,9 @@ export const googleAuth = async (req, res) => {
     const payload = ticket.getPayload();
     const { email, name, picture, sub: googleId } = payload;
 
-    // Check if user exists
     let user = await User.findOne({ email });
+    let isNewUser = false;
+
     if (!user) {
       user = await User.create({
         name,
@@ -83,6 +87,11 @@ export const googleAuth = async (req, res) => {
         avatar: picture,
         provider: "google",
       });
+      isNewUser = true;
+    }
+
+    if (isNewUser) {
+      await createDefaultFolders(user._id);
     }
 
     // Issue our JWT

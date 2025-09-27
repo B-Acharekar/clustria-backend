@@ -10,6 +10,7 @@ const userSchema = new mongoose.Schema({
   avatar: { type: String }, // profile picture
   storageUsed: { type: Number, default: 0 }, // in bytes
   storageLimit: { type: Number, default: 5 * 1024 * 1024 * 1024 }, // default 5GB
+  plan: { type: String, enum: ["Free", "Pro", "Business"], default: "Free" },
   googleRefreshToken: { type: String }, // new field for Gmail API
   resetPasswordToken : {type: String},
   resetPasswordExpires : {type:Date},

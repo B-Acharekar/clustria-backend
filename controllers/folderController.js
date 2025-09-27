@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Folder from "../models/Folder.js";
 import File from "../models/File.js";
 
@@ -7,7 +8,7 @@ export const createFolder = async (req, res) => {
     const { name, parentId } = req.body;
     const folder = await Folder.create({
       name,
-      parent: parentId || null,
+      parent: parentId ? new mongoose.Types.ObjectId(parentId) : null,
       user: req.user._id, // consistency with File
     });
 
@@ -48,6 +49,26 @@ export const renameFolder = async (req, res) => {
   }
 };
 
+export const getFolderPath = async (req, res) => {
+  try {
+    const folderId = req.params.id;
+    if (!folderId) return res.json([]);
+
+    let path = [];
+    let current = await Folder.findOne({ _id: folderId, user: req.user._id });
+
+    while (current) {
+      path.unshift({ id: current._id, name: current.name });
+      if (!current.parent) break;
+      current = await Folder.findOne({ _id: current.parent, user: req.user._id });
+    }
+
+    res.json(path);
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching folder path", error });
+  }
+};
+
 // Delete folder + cascade delete
 export const deleteFolder = async (req, res) => {
   try {
@@ -71,5 +92,26 @@ export const deleteFolder = async (req, res) => {
     res.json({ message: "Folder and contents deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: "Error deleting folder", error });
+  }
+};
+
+export const createDefaultFolders = async (userId) => {
+  const defaultFolders = ["Documents", "Images", "Videos"];
+
+  const folderDocs = defaultFolders.map(name => ({
+    name,
+    parent: null,
+    user: userId,
+  }));
+
+  await Folder.insertMany(folderDocs);
+};
+
+export const getAllFoldersForSidebar = async (req, res) => {
+  try {
+    const folders = await Folder.find({ user: req.user._id }).lean();
+    res.json({ folders }); // flat list, no recursion
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch folders", error: err });
   }
 };

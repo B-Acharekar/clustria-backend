@@ -5,6 +5,8 @@ import dotenv from "dotenv";
 import fileRoutes from "./routes/fileRoutes.js";
 import authRoutes from "./routes/userRoutes.js";
 import folderRoutes from "./routes/folderRoutes.js";
+import securityRoutes from "./routes/securityRoutes.js";
+import paymentRoutes from "./routes/paymentRoute.js";
 import { MONGO_URI, PORT } from "./config.js";
 import cookieParser from "cookie-parser";
 
@@ -28,5 +30,7 @@ mongoose.connect(MONGO_URI)
 app.use("/api/files", fileRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/folders", folderRoutes);
+app.use("/api/security", securityRoutes);
+app.use("/api/payment", paymentRoutes);
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

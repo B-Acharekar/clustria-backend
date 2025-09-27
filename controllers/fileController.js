@@ -1,18 +1,20 @@
 import { error } from "console";
 import File from "../models/File.js";
+import Folder from "../models/Folder.js";
 import { uploadToAzure, downloadFromAzure,deleteFromAzure  } from "../utils/azureUpload.js";
 import crypto from "crypto";
+import { classifyText } from "../utils/aiClient.js";
+import { extractTextFromAzureBlob } from "../utils/extractText.js";
 
 export const uploadFile = async (req, res) => {
   try {
-    const { encryptionType, folderId,tags } = req.body;
+    const { encryptionType, folderId, tags } = req.body;
     const file = req.file;
-
     if (!file) return res.status(400).json({ error: "No file uploaded" });
 
+    // 🔒 Encryption (if enabled)
     let buffer = file.buffer;
     let key, iv;
-
     if (encryptionType === "AES") {
       key = crypto.randomBytes(32);
       iv = crypto.randomBytes(16);
@@ -20,32 +22,38 @@ export const uploadFile = async (req, res) => {
       buffer = Buffer.concat([cipher.update(buffer), cipher.final()]);
     }
 
+    // ☁️ Upload to Azure
     const fileUrl = await uploadToAzure(file.originalname, buffer);
-    
+
+    // 🏷 Tags parsing
     const parsedTags = tags ? tags.split(",").map(tag => tag.trim()) : [];
+
+    // Save without AI
     const metadata = {
       size: file.size,
       type: file.mimetype,
       extension: file.originalname.split(".").pop().toLowerCase(),
-    }
+    };
+
     const newFile = await File.create({
-      user: req.user._id, // associate with logged-in user
-      folder:folderId || null,
+      user: req.user._id,
+      folder: folderId || null,
       filename: file.originalname,
       fileUrl,
       encryptionType: encryptionType || "NONE",
       key: key?.toString("hex") || null,
       iv: iv?.toString("hex") || null,
-      tags:parsedTags,
-      metadata
+      tags: parsedTags,
+      metadata,
     });
 
+    // Update user storage
     req.user.storageUsed += file.size;
     await req.user.save();
 
     res.status(201).json({ success: true, file: newFile });
   } catch (err) {
-    console.error(err);
+    console.error("Upload error:", err);
     res.status(500).json({ error: "File upload failed" });
   }
 };
@@ -62,6 +70,95 @@ export const listFiles = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to list files" });
+  }
+};
+
+export const uploadFileAI = async (req, res) => {
+  try {
+    const { encryptionType, folderId, tags } = req.body;
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: "No file uploaded" });
+
+    const ext = file.originalname.split(".").pop().toLowerCase();
+
+    // 🔹 Extract text locally (Node) instead of sending file URL to Flask
+    const text = await extractTextFromAzureBlob(file.buffer, ext);
+
+    // 🧠 Classify with AI (text-based)
+    const aiMeta = await classifyText(text);
+
+    // 🔒 Encryption
+    let buffer = file.buffer;
+    let key, iv;
+    if (encryptionType === "AES") {
+      key = crypto.randomBytes(32);
+      iv = crypto.randomBytes(16);
+      const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+      buffer = Buffer.concat([cipher.update(buffer), cipher.final()]);
+    }
+
+    // ☁️ Upload to Azure
+    const fileUrl = await uploadToAzure(file.originalname, buffer);
+
+    // 🏷 Tags parsing
+    const parsedTags = tags ? tags.split(",").map(tag => tag.trim()) : [];
+
+    // 📂 Auto-organize folder based on AI label
+    let targetFolderId = folderId || null;
+    let autoOrganizeMessage = null;
+
+    if (!targetFolderId) {
+      if (aiMeta.label && aiMeta.label !== "Unknown") {
+        try {
+          const folderName = aiMeta.label.replace(/_/g, " "); // normalize
+          let folder = await Folder.findOne({ name: folderName, user: req.user._id });
+          if (!folder) folder = await Folder.create({ name: folderName, user: req.user._id });
+          targetFolderId = folder._id;
+        } catch (err) {
+          console.error("Auto-folder creation failed:", err);
+          autoOrganizeMessage =
+            "AI label found, but folder could not be assigned. File saved in root.";
+        }
+      } else {
+        autoOrganizeMessage =
+          "AI could not determine a folder. File saved in root.";
+      }
+    }
+
+    // Metadata with AI results
+    const metadata = {
+      size: file.size,
+      type: file.mimetype,
+      extension: ext,
+      ...aiMeta,
+    };
+
+    const newFile = await File.create({
+      user: req.user._id,
+      folder: targetFolderId, // root if null
+      filename: file.originalname,
+      fileUrl,
+      encryptionType: encryptionType || "NONE",
+      key: key?.toString("hex") || null,
+      iv: iv?.toString("hex") || null,
+      tags: parsedTags,
+      metadata,
+    });
+
+    // Update user storage
+    req.user.storageUsed += file.size;
+    await req.user.save();
+
+    console.log("AI classification:", aiMeta);
+
+    res.status(201).json({
+      success: true,
+      file: newFile,
+      autoOrganizeMessage,
+    });
+  } catch (err) {
+    console.error("AI Upload error:", err);
+    res.status(500).json({ error: "AI file upload failed" });
   }
 };
 
