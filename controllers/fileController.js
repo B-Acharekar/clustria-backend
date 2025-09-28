@@ -104,25 +104,30 @@ export const uploadFileAI = async (req, res) => {
     // 🏷 Tags parsing
     const parsedTags = tags ? tags.split(",").map(tag => tag.trim()) : [];
 
-    // 📂 Auto-organize folder based on AI label
+    // 📂 Auto-organize folder based on AI label or fallback
     let targetFolderId = folderId || null;
     let autoOrganizeMessage = null;
 
     if (!targetFolderId) {
+      let folderName = null;
+
       if (aiMeta.label && aiMeta.label !== "Unknown") {
-        try {
-          const folderName = aiMeta.label.replace(/_/g, " "); // normalize
-          let folder = await Folder.findOne({ name: folderName, user: req.user._id });
-          if (!folder) folder = await Folder.create({ name: folderName, user: req.user._id });
-          targetFolderId = folder._id;
-        } catch (err) {
-          console.error("Auto-folder creation failed:", err);
-          autoOrganizeMessage =
-            "AI label found, but folder could not be assigned. File saved in root.";
-        }
+        folderName = aiMeta.label.replace(/_/g, " "); // normalize
       } else {
+        // Fallback by file type
+        if (["jpg", "jpeg", "png", "gif", "bmp", "webp"].includes(ext)) folderName = "Images";
+        else if (["mp4", "mov", "avi", "mkv", "webm"].includes(ext)) folderName = "Videos";
+        else folderName = "Documents"; // PDFs, docx, txt, etc.
+      }
+
+      try {
+        let folder = await Folder.findOne({ name: folderName, user: req.user._id });
+        if (!folder) folder = await Folder.create({ name: folderName, user: req.user._id });
+        targetFolderId = folder._id;
+      } catch (err) {
+        console.error("Auto-folder creation failed:", err);
         autoOrganizeMessage =
-          "AI could not determine a folder. File saved in root.";
+          "Folder assignment failed. File saved in root.";
       }
     }
 
