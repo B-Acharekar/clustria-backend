@@ -1,7 +1,8 @@
 import { error } from "console";
 import File from "../models/File.js";
 import Folder from "../models/Folder.js";
-import { uploadToAzure, downloadFromAzure,deleteFromAzure  } from "../utils/azureUpload.js";
+import Trash from "../models/Trash.js";
+import { uploadToAzure, downloadFromAzure} from "../utils/azureUpload.js";
 import crypto from "crypto";
 import { classifyText } from "../utils/aiClient.js";
 import { extractTextFromAzureBlob } from "../utils/extractText.js";
@@ -207,22 +208,23 @@ export const deleteFile = async (req, res) => {
     const { id } = req.params;
     const fileDoc = await File.findById(id);
 
-    if (!fileDoc) {
-      return res.status(404).json({ error: "File not found" });
-    }
-
-    // Ensure only owner can delete
-    if (!fileDoc.user.equals(req.user._id)) {
+    if (!fileDoc) return res.status(404).json({ error: "File not found" });
+    if (!fileDoc.user.equals(req.user._id))
       return res.status(403).json({ error: "Unauthorized" });
-    }
 
-    await deleteFromAzure(fileDoc.filename);
+    // Move to Trash
+    await Trash.create({
+      user: req.user._id,
+      itemType: "file",
+      itemId: fileDoc._id,
+      name: fileDoc.filename,
+      metadata: fileDoc.metadata,
+    });
+
+    // Remove from Files collection (but not Azure yet)
     await fileDoc.deleteOne();
-    req.user.storageUsed -= fileDoc.metadata.size || 0;
-    if (req.user.storageUsed < 0) req.user.storageUsed = 0; // ensure no negative
-    await req.user.save();
 
-    res.json({ success: true, message: "File deleted" });
+    res.json({ success: true, message: "File moved to trash" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to delete file" });

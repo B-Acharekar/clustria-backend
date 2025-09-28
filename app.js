@@ -7,6 +7,7 @@ import authRoutes from "./routes/userRoutes.js";
 import folderRoutes from "./routes/folderRoutes.js";
 import securityRoutes from "./routes/securityRoutes.js";
 import paymentRoutes from "./routes/paymentRoute.js";
+import trashRoutes from "./routes/trashRoutes.js";
 import { MONGO_URI, PORT } from "./config.js";
 import cookieParser from "cookie-parser";
 
@@ -32,5 +33,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/folders", folderRoutes);
 app.use("/api/security", securityRoutes);
 app.use("/api/payment", paymentRoutes);
+app.use("/api/trash", trashRoutes);
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

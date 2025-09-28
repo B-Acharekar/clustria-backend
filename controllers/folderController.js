@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import Folder from "../models/Folder.js";
 import File from "../models/File.js";
+import Trash from "../models/Trash.js";
 
 // Create folder
 export const createFolder = async (req, res) => {
@@ -75,21 +76,39 @@ export const deleteFolder = async (req, res) => {
     const folder = await Folder.findOne({ _id: req.params.id, user: req.user._id });
     if (!folder) return res.status(404).json({ message: "Folder not found" });
 
-    // recursive delete helper
-    const deleteRecursive = async (folderId) => {
+    // recursive move-to-trash
+    const moveRecursive = async (folderId) => {
       const subfolders = await Folder.find({ parent: folderId, user: req.user._id });
 
       for (const sub of subfolders) {
-        await deleteRecursive(sub._id);
+        await moveRecursive(sub._id);
       }
 
-      await File.deleteMany({ folder: folderId, user: req.user._id });
+      const files = await File.find({ folder: folderId, user: req.user._id });
+      for (const f of files) {
+        await Trash.create({
+          user: req.user._id,
+          itemType: "file",
+          itemId: f._id,
+          name: f.filename,
+          metadata: f.metadata,
+        });
+        await f.deleteOne();
+      }
+
+      await Trash.create({
+        user: req.user._id,
+        itemType: "folder",
+        itemId: folderId,
+        name: folder.name,
+      });
+
       await Folder.deleteOne({ _id: folderId, user: req.user._id });
     };
 
-    await deleteRecursive(folder._id);
+    await moveRecursive(folder._id);
 
-    res.json({ message: "Folder and contents deleted successfully" });
+    res.json({ message: "Folder and contents moved to trash" });
   } catch (error) {
     res.status(500).json({ message: "Error deleting folder", error });
   }
