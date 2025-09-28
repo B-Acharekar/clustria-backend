@@ -42,6 +42,15 @@ export const deleteFromAzure = async (filename) => {
   return true;
 };
 
+export const copyBlob = async (oldName, newName) => {
+  const sourceBlobClient = containerClient.getBlobClient(oldName);
+  const destBlobClient = containerClient.getBlockBlobClient(newName);
+
+  // Start copy
+  const copyPoller = await destBlobClient.beginCopyFromURL(sourceBlobClient.url);
+  await copyPoller.pollUntilDone();
+};
+
 const streamToBuffer = async (readableStream) => {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -50,3 +59,8 @@ const streamToBuffer = async (readableStream) => {
     readableStream.on("error", reject);
   });
 };
+
+export const deleteBlob = async (blobName) => {
+  const blobClient = containerClient.getBlobClient(blobName);
+  await blobClient.deleteIfExists();
+}
