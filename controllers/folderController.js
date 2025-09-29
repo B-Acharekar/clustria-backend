@@ -101,6 +101,9 @@ export const deleteFolder = async (req, res) => {
         itemType: "folder",
         itemId: folderId,
         name: folder.name,
+        metadata: {
+          parent: folder.parent || null,
+        },
       });
 
       await Folder.deleteOne({ _id: folderId, user: req.user._id });

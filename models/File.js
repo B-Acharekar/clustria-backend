@@ -7,6 +7,8 @@ const fileSchema = new mongoose.Schema({
   fileUrl: { type: String, required: true },
   encryptionType: { type: String, enum: ["NONE", "AES", "ZKE"], default: "NONE" },
   tags: { type: [String], default: [] },
+  starred: { type: Boolean, default: false },
+  lastAccessed: { type: Date, default: Date.now },
   metadata: { type: Object, default: {} },
   key: String,
   iv: String,
