@@ -14,14 +14,23 @@ import cookieParser from "cookie-parser";
 dotenv.config();
 
 const app = express();
-
+const allowedOrigins = [
+  "http://localhost:3000",                     // local dev
+  "https://clustria-frontend.vercel.app"      // production frontend
+];
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({
-  origin: `${process.env.FRONTEND_PORT}`, // your frontend URL
-  credentials: true, // if you need cookies/auth
+  origin: (origin, callback) => {
+    // allow requests with no origin (like Postman) or allowed origins
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
 }));
-
 // MongoDB connection
 mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB connected"))
