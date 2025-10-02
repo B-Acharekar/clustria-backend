@@ -1,33 +1,52 @@
+import path from "path";
 import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions } from "@azure/storage-blob";
 import { AZURE_STORAGE_CONNECTION_STRING, CONTAINER_NAME } from "../config.js";
 
 const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
 const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAME);
 
-export const uploadToAzure = async (filename, buffer) => {
+// Mapping extensions → MIME types
+const mimeTypes = {
+  ".pdf": "application/pdf",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".mp3": "audio/mpeg",
+  ".mp4": "video/mp4",
+  ".txt": "text/plain",
+};
 
+export const uploadToAzure = async (filename, buffer) => {
   await containerClient.createIfNotExists(); // private container
+
+  // Detect MIME type from file extension
+  const ext = path.extname(filename).toLowerCase();
+  const contentType = mimeTypes[ext] || "application/octet-stream";
 
   const blockBlobClient = containerClient.getBlockBlobClient(filename);
   await blockBlobClient.uploadData(buffer, {
-    blobHTTPHeaders: { blobContentType: "application/octet-stream" },
+    blobHTTPHeaders: { blobContentType: contentType },
   });
 
   // Generate SAS token (1 hour read-only)
-  const sasToken = generateBlobSASQueryParameters({
-    containerName: CONTAINER_NAME,
-    blobName: filename,
-    permissions: BlobSASPermissions.parse("r"),
-    startsOn: new Date(),
-    expiresOn: new Date(new Date().valueOf() + 3600 * 1000),
-  }, blobServiceClient.credential).toString();
+  const sasToken = generateBlobSASQueryParameters(
+    {
+      containerName: CONTAINER_NAME,
+      blobName: filename,
+      permissions: BlobSASPermissions.parse("r"),
+      startsOn: new Date(),
+      expiresOn: new Date(Date.now() + 3600 * 1000), // 1 hour
+    },
+    blobServiceClient.credential
+  ).toString();
 
   return `${blockBlobClient.url}?${sasToken}`;
 };
 
 export const downloadFromAzure = async (filename) => {
-  const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
-  const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAME);
   const blockBlobClient = containerClient.getBlockBlobClient(filename);
 
   const downloadResponse = await blockBlobClient.download();
@@ -51,6 +70,11 @@ export const copyBlob = async (oldName, newName) => {
   await copyPoller.pollUntilDone();
 };
 
+export const deleteBlob = async (blobName) => {
+  const blobClient = containerClient.getBlobClient(blobName);
+  await blobClient.deleteIfExists();
+};
+
 const streamToBuffer = async (readableStream) => {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -59,8 +83,3 @@ const streamToBuffer = async (readableStream) => {
     readableStream.on("error", reject);
   });
 };
-
-export const deleteBlob = async (blobName) => {
-  const blobClient = containerClient.getBlobClient(blobName);
-  await blobClient.deleteIfExists();
-}
