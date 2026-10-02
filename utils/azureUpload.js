@@ -19,14 +19,14 @@ const mimeTypes = {
   ".txt": "text/plain",
 };
 
-export const uploadToAzure = async (filename, buffer) => {
+export const uploadToAzure = async (filename, buffer, blobName = filename) => {
   await containerClient.createIfNotExists(); // private container
 
   // Detect MIME type from file extension
   const ext = path.extname(filename).toLowerCase();
   const contentType = mimeTypes[ext] || "application/octet-stream";
 
-  const blockBlobClient = containerClient.getBlockBlobClient(filename);
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
   await blockBlobClient.uploadData(buffer, {
     blobHTTPHeaders: { blobContentType: contentType },
   });
@@ -35,7 +35,7 @@ export const uploadToAzure = async (filename, buffer) => {
   const sasToken = generateBlobSASQueryParameters(
     {
       containerName: CONTAINER_NAME,
-      blobName: filename,
+      blobName,
       permissions: BlobSASPermissions.parse("r"),
       startsOn: new Date(),
       expiresOn: new Date(Date.now() + 3600 * 1000), // 1 hour
@@ -43,7 +43,10 @@ export const uploadToAzure = async (filename, buffer) => {
     blobServiceClient.credential
   ).toString();
 
-  return `${blockBlobClient.url}?${sasToken}`;
+  return {
+    url: `${blockBlobClient.url}?${sasToken}`,
+    blobName,
+  };
 };
 
 export const downloadFromAzure = async (filename) => {

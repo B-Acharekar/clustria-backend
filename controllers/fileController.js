@@ -5,9 +5,45 @@ import Trash from "../models/Trash.js";
 import { copyBlob, uploadToAzure, downloadFromAzure,deleteBlob} from "../utils/azureUpload.js";
 import crypto from "crypto";
 import { classifyText } from "../utils/aiClient.js";
-import { extractTextFromAzureBlob } from "../utils/extractText.js";
+import { extractTextFromBuffer } from "../utils/extractText.js";
 import { sendEmail } from "../utils/mailer.js";
 import { shareFileTemplate } from "../utils/emailTemplates.js";
+
+const hashShareToken = (token) =>
+  crypto.createHash("sha256").update(token).digest("hex");
+
+const sendFileContent = async (fileDoc, res, preview = false) => {
+  let buffer = await downloadFromAzure(fileDoc.blobName || fileDoc.filename);
+
+  if (fileDoc.encryptionType === "AES" && fileDoc.key && fileDoc.iv) {
+    const decipher = crypto.createDecipheriv(
+      "aes-256-cbc",
+      Buffer.from(fileDoc.key, "hex"),
+      Buffer.from(fileDoc.iv, "hex")
+    );
+    buffer = Buffer.concat([decipher.update(buffer), decipher.final()]);
+  }
+
+  const ext = fileDoc.filename.split(".").pop()?.toLowerCase();
+  let contentType = fileDoc.metadata?.type || "application/octet-stream";
+  if (["png", "jpg", "jpeg", "gif"].includes(ext)) {
+    contentType = `image/${ext === "jpg" ? "jpeg" : ext}`;
+  }
+  if (ext === "pdf") contentType = "application/pdf";
+  if (["mp4", "webm"].includes(ext)) contentType = `video/${ext}`;
+
+  res.setHeader("Content-Type", contentType);
+  if (!preview) {
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${fileDoc.filename.replace(/"/g, "")}"`
+    );
+  }
+
+  fileDoc.lastAccessed = new Date();
+  await fileDoc.save();
+  res.send(buffer);
+};
 
 export const uploadFile = async (req, res) => {
   try {
@@ -26,7 +62,8 @@ export const uploadFile = async (req, res) => {
     }
 
     // ☁️ Upload to Azure
-    const fileUrl = await uploadToAzure(file.originalname, buffer);
+    const blobName = `${req.user._id}/${crypto.randomUUID()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const uploaded = await uploadToAzure(file.originalname, buffer, blobName);
 
     // 🏷 Tags parsing
     const parsedTags = tags ? tags.split(",").map(tag => tag.trim()) : [];
@@ -42,7 +79,8 @@ export const uploadFile = async (req, res) => {
       user: req.user._id,
       folder: folderId || null,
       filename: file.originalname,
-      fileUrl,
+      fileUrl: uploaded.url,
+      blobName: uploaded.blobName,
       encryptionType: encryptionType || "NONE",
       key: key?.toString("hex") || null,
       iv: iv?.toString("hex") || null,
@@ -85,7 +123,7 @@ export const uploadFileAI = async (req, res) => {
     const ext = file.originalname.split(".").pop().toLowerCase();
 
     // 🔹 Extract text locally (Node) instead of sending file URL to Flask
-    const text = await extractTextFromAzureBlob(file.buffer, ext);
+    const text = await extractTextFromBuffer(file.buffer, ext, file.mimetype);
 
     // 🧠 Classify with AI (text-based)
     const aiMeta = await classifyText(text);
@@ -101,7 +139,8 @@ export const uploadFileAI = async (req, res) => {
     }
 
     // ☁️ Upload to Azure
-    const fileUrl = await uploadToAzure(file.originalname, buffer);
+    const blobName = `${req.user._id}/${crypto.randomUUID()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const uploaded = await uploadToAzure(file.originalname, buffer, blobName);
 
     // 🏷 Tags parsing
     const parsedTags = tags ? tags.split(",").map(tag => tag.trim()) : [];
@@ -145,7 +184,8 @@ export const uploadFileAI = async (req, res) => {
       user: req.user._id,
       folder: targetFolderId, // root if null
       filename: file.originalname,
-      fileUrl,
+      fileUrl: uploaded.url,
+      blobName: uploaded.blobName,
       encryptionType: encryptionType || "NONE",
       key: key?.toString("hex") || null,
       iv: iv?.toString("hex") || null,
@@ -179,36 +219,51 @@ export const getFiles = async (req, res) => {
     if (!fileDoc) return res.status(404).json({ error: "File not found" });
     if (!fileDoc.user.equals(req.user._id)) return res.status(403).json({ error: "Unauthorized" });
 
-    let buffer = await downloadFromAzure(fileDoc.filename);
-
-    if (fileDoc.encryptionType === "AES" && fileDoc.key && fileDoc.iv) {
-      const decipher = crypto.createDecipheriv(
-        "aes-256-cbc",
-        Buffer.from(fileDoc.key, "hex"),
-        Buffer.from(fileDoc.iv, "hex")
-      );
-      buffer = Buffer.concat([decipher.update(buffer), decipher.final()]);
-    }
-    
-    // Determine MIME type
-    const ext = fileDoc.filename.split(".").pop()?.toLowerCase();
-    let contentType = "application/octet-stream"; // fallback
-    if (["png", "jpg", "jpeg", "gif"].includes(ext)) contentType = `image/${ext === "jpg" ? "jpeg" : ext}`;
-    if (ext === "pdf") contentType = "application/pdf";
-    if (["mp4", "webm"].includes(ext)) contentType = `video/${ext}`;
-
-    res.setHeader("Content-Type", contentType);
-
-    // Only force download if preview not requested
-    if (!preview) {
-      res.setHeader("Content-Disposition", `attachment; filename=${fileDoc.filename}`);
-    }
-    fileDoc.lastAccessed = new Date();
-    await fileDoc.save();
-    res.send(buffer);
+    await sendFileContent(fileDoc, res, preview);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch files" });
+  }
+};
+
+export const getSharedFile = async (req, res) => {
+  try {
+    const file = await File.findOne({
+      shareTokenHash: hashShareToken(req.params.token),
+      shareExpiresAt: { $gt: new Date() },
+    }).select("filename metadata size shareExpiresAt");
+
+    if (!file) return res.status(404).json({ error: "Share link is invalid or expired" });
+
+    res.json({
+      success: true,
+      file: {
+        id: file._id,
+        filename: file.filename,
+        metadata: file.metadata,
+        size: file.size,
+        expiresAt: file.shareExpiresAt,
+      },
+    });
+  } catch (err) {
+    console.error("Shared file metadata error:", err);
+    res.status(500).json({ error: "Failed to load shared file" });
+  }
+};
+
+export const downloadSharedFile = async (req, res) => {
+  try {
+    const file = await File.findOne({
+      shareTokenHash: hashShareToken(req.params.token),
+      shareExpiresAt: { $gt: new Date() },
+    });
+
+    if (!file) return res.status(404).json({ error: "Share link is invalid or expired" });
+
+    await sendFileContent(file, res, req.query.preview === "true");
+  } catch (err) {
+    console.error("Shared file download error:", err);
+    res.status(500).json({ error: "Failed to fetch shared file" });
   }
 };
 
@@ -283,8 +338,15 @@ export const shareFile = async (req, res) => {
     if (!file) return res.status(404).json({ error: "File not found" });
     if (!file.user.equals(req.user._id)) return res.status(403).json({ error: "Unauthorized" });
 
-    // Generate file link
-    const fileLink = `${process.env.FRONTEND_URL}/files/${file._id}`;
+    const frontendUrl = process.env.FRONTEND_URL?.replace(/\/$/, "");
+    if (!frontendUrl) return res.status(500).json({ error: "FRONTEND_URL is not configured" });
+
+    const shareToken = crypto.randomBytes(32).toString("hex");
+    file.shareTokenHash = hashShareToken(shareToken);
+    file.shareExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await file.save();
+
+    const fileLink = `${frontendUrl}/share/${shareToken}`;
 
     // Send email
     await sendEmail(email, "File Shared with You", shareFileTemplate(file.filename, fileLink, req.user.name));
